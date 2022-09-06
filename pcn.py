@@ -28,9 +28,9 @@ class PCN():
         self.intype = intype
         self.outtype = outtype
         
-        self.x_rate = 2.02
-        self.W_rate = 0.001
-        self.b_rate = 0.001
+        self.x_rate = 0.02
+        self.W_rate = 0.005
+        self.b_rate = 0.005
         
         
         self.W = list()
@@ -62,7 +62,7 @@ class PCN():
             self.x.append(np.zeros((N_new,self.N_units[i],1)))
         
         
-    def change_rate(self, x_rate = 2.02, W_rate = 0.001, b_rate = 0.001):
+    def change_rate(self, x_rate = 0.02, W_rate = 0.005, b_rate = 0.005):
         self.x_rate = x_rate
         self.W_rate = W_rate
         self.b_rate = b_rate
@@ -74,7 +74,8 @@ class PCN():
         x = self.activation(x)
         return x*(1.0-x)
     
-    def inverse_activation(self, x):
+    def deactivation(self, x):
+        x = x-0.0001*(x>0.9999)+0.0001*(x<0.0001)
         return - np.log(1.0/x-1.0)
 
     
@@ -95,7 +96,7 @@ class PCN():
         return self.x[0][:,:,0]
         
     
-    def step(self, in_x, out_x):
+    def step(self, in_x, out_x, size_Batch = 1):
           
         up = list()
         err = list()
@@ -118,32 +119,32 @@ class PCN():
         else:
             
             if self.intype == 'unit':
-                self.x[0] = self.activation(self.inverse_activation(self.x[0])+self.x_rate*(-bottom[0])/self.N_pairs)
+                self.x[0] = self.activation(self.deactivation(self.x[0])+self.x_rate*(-bottom[0]))
             else:
-                self.x[0] += self.x_rate*(-bottom[0])/self.N_pairs
+                self.x[0] += self.x_rate*(-bottom[0])
                 
         
         for i in range(1, self.N_layers-1):
-            self.x[i] += self.x_rate*(err[i-1]-bottom[i])/self.N_pairs
+            self.x[i] += self.x_rate*(err[i-1]-bottom[i])
             
         if len(out_x) > 0:
             if self.outtype == 'unit':
-                self.x[self.N_layers-1] = self.inverse_activation(out_x)
+                self.x[self.N_layers-1] = self.deactivation(out_x)
             else:
                 self.x[self.N_layers-1] = out_x
         else:
-            self.x[self.N_layers-1] += self.x_rate*(err[self.N_layers-2])/self.N_pairs
+            self.x[self.N_layers-1] += self.x_rate*(err[self.N_layers-2])
         
 
         
-        if (len(out_x) > 0) and (len(in_x) > 0) and (self.W_rate > 0) and (self.b_rate > 0):
+        if (len(out_x) > 0) and (len(in_x) > 0) and ((self.W_rate > 0) or (self.b_rate > 0)):
           
-            for k in range(0,self.N_pairs,100):
+            for k in range(0,self.N_pairs,size_Batch):
                 for i in range(self.N_layers-1):
                     #self.W[i] += -np.sum(err[i]@(self.activation(self.x_history[i][:,:,-1,None])).transpose([0,2,1]),axis = 0)*self.W_rate/(self.N_pairs)
                     #self.b[i] += -np.sum(err[i], axis = 0)*self.b_rate
-                    self.W[i] += -np.sum(err[i][k:k+self.N_pairs]@(self.activation(self.x_history[i][k:k+self.N_pairs,:,-1,None])).transpose([0,2,1]),axis = 0)*self.W_rate/(self.N_pairs)
-                    self.b[i] += -np.sum(err[i][k:k+self.N_pairs], axis = 0)*self.b_rate/(self.N_pairs)
+                    self.W[i] += -np.sum(err[i][k:k+size_Batch]@(self.activation(self.x_history[i][k:k+size_Batch,:,-1,None])).transpose([0,2,1]),axis = 0)*self.W_rate/(self.N_pairs)
+                    self.b[i] += -np.sum(err[i][k:k+size_Batch], axis = 0)*self.b_rate/(self.N_pairs)
         for i in range(self.N_layers):   
             self.x_history[i][:,:,0,None] = self.x[i].copy()
             self.x_history[i] = np.roll(self.x_history[i], 1, axis =  2)
@@ -169,7 +170,7 @@ class PCN():
 
     
     #возвращает реконстр дату, принимает input и output в режиме обучения
-    def run(self,N_iter ,in_x = [], out_x = [], draw = False):
+    def run(self,N_iter ,in_x = [], out_x = [], draw = False, size_Batch = 1):
         
         #if (len(in_x)>0) and (len(out_x)>0):
             
@@ -184,7 +185,7 @@ class PCN():
         
         for t in range(N_iter):
       
-            e_t, e_u = self.step(in_x, out_x)
+            e_t, e_u = self.step(in_x, out_x, size_Batch)
           
             
             err_total[t] = e_t
@@ -211,8 +212,8 @@ import matplotlib.pyplot as plt
 mndata = MNIST('samples')
 N_batch = 100
 N_epochs = 2
-N_iter_pre = 2000
-N_iter_post = 1000
+N_iter_pre = 250
+N_iter_post = 1250
 
 images_train, labels_train = mndata.load_training()
 
@@ -234,8 +235,8 @@ images_code = np.zeros((N_train,28*28,1))
 #### labels to code
 for i in range(N_train):
     #labels_code[i,:,0] = code_map[labels_train[i]]
-    dig = np.zeros(10)+0.01
-    dig[labels_train[i]] = 0.99
+    dig = np.zeros(10)+0.0
+    dig[labels_train[i]] = 1.0
     labels_code[i,:,0] = dig
     images_code[i,:,0] = np.array(images_train[i])/255.0   #
     
@@ -251,7 +252,7 @@ pcn.run(N_iter = N_iter_pre, in_x = images_code,
 
 pcn.change_rate()
 pcn.run(N_iter = N_iter_post,  in_x = images_code, 
-            out_x = labels_code, draw = True)
+            out_x = labels_code, draw = True, size_Batch = 100)
 
 
 
@@ -272,7 +273,7 @@ for i in range(N_test):
     
     
 pcn.change_N_parallel(N_test)  
-pcn.change_rate(x_rate = 202)
+pcn.change_rate(x_rate = 0.02)
 pcn.run(1000, in_x = images_code, draw = True)
     
     
